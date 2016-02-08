@@ -4,11 +4,31 @@ var url     = require('url'),
     fs      = require('fs'),
     qs      = require('querystring'),
     express = require('express'),
+    _       = require('lodash'),
     app     = express();
+
+function loadApplicationVariables() {
+  var fileName = __dirname + "/application.json";
+
+  try {
+    if (fs.statSync(fileName).isFile()) {
+      var app_variables = JSON.parse(fs.readFileSync(fileName, 'utf8'));
+
+      _.forEach(app_variables, function(value, key) {
+        process.env[key] = value;
+      });
+    }
+  }
+  catch (e) {
+    console.log("Failed to load application.json");
+  }
+}
 
 // Load config defaults from JSON file.
 // Environment variables override defaults.
 function loadConfig() {
+  loadApplicationVariables();
+
   var config = JSON.parse(fs.readFileSync(__dirname+ '/config.json', 'utf-8'));
   for (var i in config) {
     config[i] = process.env[i.toUpperCase()] || config[i];
@@ -22,25 +42,32 @@ var config = loadConfig();
 
 function authenticate(code, cb) {
   var data = qs.stringify({
-    client_id: config.oauth_client_id,
-    client_secret: config.oauth_client_secret,
-    code: code
+    grant_type: "authorization_code",
+    code: code,
+    redirect_uri: 'http://localhost:3000/auth/callback'
   });
+
+  var encoded_id_and_secret = new Buffer(
+    config.oauth_client_id +
+    ":" +
+    config.oauth_client_secret).toString("base64");
 
   var reqOptions = {
     host: config.oauth_host,
     port: config.oauth_port,
     path: config.oauth_path,
     method: config.oauth_method,
-    headers: { 'content-length': data.length }
+    headers: {
+      "Authorization": "Basic " + encoded_id_and_secret
+    }
   };
 
   var body = "";
-  var req = https.request(reqOptions, function(res) {
+  var req = http.request(reqOptions, function(res) {
     res.setEncoding('utf8');
     res.on('data', function (chunk) { body += chunk; });
     res.on('end', function() {
-      cb(null, qs.parse(body).access_token);
+      cb(null, JSON.parse(body).access_token);
     });
   });
 
